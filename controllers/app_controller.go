@@ -18,13 +18,18 @@ package controllers
 
 import (
 	"context"
-
+	"fmt"
+	testv1 "github.com/ylinyang/kubebuilder-demo/api/v1"
+	"github.com/ylinyang/kubebuilder-demo/controllers/utils"
+	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	testv1 "github.com/ylinyang/kubebuilder-demo/api/v1"
 )
 
 // AppReconciler reconciles a App object
@@ -47,16 +52,69 @@ type AppReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	rLog := log.FromContext(ctx)
+	// 实例化crd
+	app := &testv1.App{}
 
-	// TODO(user): your logic here
+	// 从缓存中获取app
+	if err := r.Get(ctx, req.NamespacedName, app); err != nil {
+		return ctrl.Result{}, nil
+	}
 
+	// deployment
+	deployment := utils.NewDeployment(app)
+
+	// 设置app与deploy的绑定关系
+	if err := controllerutil.SetControllerReference(app, deployment, r.Scheme); err != nil {
+		return ctrl.Result{}, err
+	}
+	d := &v1.Deployment{}
+	if err := r.Get(ctx, req.NamespacedName, d); err != nil {
+		if errors.IsNotFound(err) {
+			if err := r.Create(ctx, deployment); err != nil {
+				rLog.Error(err, "create deploy failed")
+				return ctrl.Result{}, err
+			}
+			rLog.Info(fmt.Sprintf("create or update deploy %s success", req.NamespacedName))
+		}
+	} else {
+		if err := r.Update(ctx, deployment); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// service
+	service := utils.NewService(app)
+	if err := controllerutil.SetControllerReference(app, service, r.Scheme); err != nil {
+		return ctrl.Result{}, err
+	}
+	s := &corev1.Service{}
+	if err := r.Get(ctx, types.NamespacedName{Name: app.Name, Namespace: app.Namespace}, s); err != nil {
+		if errors.IsNotFound(err) && app.Spec.EnableService {
+			if err := r.Create(ctx, service); err != nil {
+				rLog.Error(err, "create service failed")
+				return ctrl.Result{}, err
+			}
+			rLog.Info(fmt.Sprintf("create or update service  %s success", req.NamespacedName))
+		}
+		if !errors.IsNotFound(err) && app.Spec.EnableService {
+			return ctrl.Result{}, err
+		}
+	} else {
+		if !app.Spec.EnableService {
+			if err := r.Delete(ctx, s); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// SetupWithManager sets up the controller with the Manager. 使用owns关联事件与crd
 func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&testv1.App{}).
+		Owns(&v1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Complete(r)
 }
