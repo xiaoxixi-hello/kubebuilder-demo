@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	testv1 "github.com/ylinyang/kubebuilder-demo/api/v1"
+	"github.com/ylinyang/kubebuilder-demo/controllers/builderapp"
 	"github.com/ylinyang/kubebuilder-demo/controllers/utils"
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -29,7 +30,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // AppReconciler reconciles a App object
@@ -75,12 +78,13 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				rLog.Error(err, "create deploy failed")
 				return ctrl.Result{}, err
 			}
-			rLog.Info(fmt.Sprintf("create or update deploy %s success", req.NamespacedName))
+			rLog.Info(fmt.Sprintf("create  deploy %s success", req.NamespacedName))
 		}
 	} else {
 		if err := r.Update(ctx, deployment); err != nil {
 			return ctrl.Result{}, err
 		}
+		rLog.Info(fmt.Sprintf("update  deploy %s success", req.NamespacedName))
 	}
 
 	// service
@@ -95,7 +99,7 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				rLog.Error(err, "create service failed")
 				return ctrl.Result{}, err
 			}
-			rLog.Info(fmt.Sprintf("create or update service  %s success", req.NamespacedName))
+			rLog.Info(fmt.Sprintf("create service  %s success", req.NamespacedName))
 		}
 		if !errors.IsNotFound(err) && app.Spec.EnableService {
 			return ctrl.Result{}, err
@@ -111,10 +115,21 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 }
 
 // SetupWithManager sets up the controller with the Manager. 使用owns关联事件与crd
+/*
 func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&testv1.App{}).
 		Owns(&v1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Complete(r)
+}
+*/
+
+// SetupWithManager 方法二：使用Watches 监听
+func (r *AppReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		// 自定义入队
+		For(&testv1.App{}).Watches(&source.Kind{Type: &v1.Deployment{}}, &handler.EnqueueRequestForObject{}).WithEventFilter(&builderapp.ResourceAppChangedPredicate{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
 }

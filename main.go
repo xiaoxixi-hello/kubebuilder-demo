@@ -85,7 +85,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "App")
 		os.Exit(1)
 	}
-	//+kubebuilder:scaffold:builder
+	//+kubebuilder:scaffold:builderapp
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
